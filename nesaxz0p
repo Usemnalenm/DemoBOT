@@ -1,0 +1,152 @@
+import telebot
+import requests
+from telebot import types
+
+# توكن البوت الخاص بك
+API_TOKEN = '7030188013:AAF5QESdUci5hjMkn6C4rc_EiPvnYh2F3V4'
+
+# تهيئة البوت
+bot = telebot.TeleBot(API_TOKEN)
+
+# المتغيرات المؤقتة لتخزين معلومات المستخدم
+user_data = {}  # يمكن استبداله بقاعدة بيانات فعلية
+
+# التعامل مع أمر البدء
+@bot.message_handler(commands=['start'])
+def send_welcome(message):
+    # إنشاء زر المصدر
+    markup = types.InlineKeyboardMarkup()
+    source_button = types.InlineKeyboardButton(text="📌 المصدر", url="https://t.me/difo100")
+    markup.add(source_button)
+    
+    # رسالة الترحيب
+    welcome_message = """
+✨ **مرحبًا بك في بوتنا!** ✨
+
+🛠️ نحن هنا لمساعدتك في الحصول على باقات الإنترنت بكل سهولة.
+
+📞 يرجى إرسال رقم الهاتف الخاص بك للاستمرار في العملية.
+
+🚀 **اتبع التعليمات للحصول على أفضل تجربة.**
+
+إذا كنت بحاجة إلى أي مساعدة، لا تتردد في التواصل معنا!
+
+💬 **لمزيد من التفاصيل، يرجى زيارة:** [المصدر](https://t.me/difo100)
+    """
+    bot.send_message(message.chat.id, welcome_message, reply_markup=markup, parse_mode='Markdown')
+
+# التعامل مع إدخال رقم الهاتف
+@bot.message_handler(func=lambda message: True)
+def handle_phone_number(message):
+    chat_id = message.chat.id
+    num = message.text
+    
+    if chat_id in user_data and 'access_token' in user_data[chat_id]:
+        bot.send_message(chat_id, 'مرحبًا مجددًا! جاري إرسال طلب الإنترنت...')
+        apply_internet_package(chat_id)
+    else:
+        # تخزين الرقم المدخل
+        user_data[chat_id] = {'phone_number': num}
+        bot.reply_to(message, "تم استلام الرقم. جاري إرسال الطلب للحصول على الكود...")
+        # طلب إرسال OTP
+        send_otp(chat_id, num)
+
+# دالة إرسال OTP
+def send_otp(chat_id, num):
+    headers = {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Host': 'ibiza.ooredoo.dz',
+        'Connection': 'Keep-Alive',
+        'User-Agent': 'okhttp/4.9.3',
+    }
+
+    data = {
+        'client_id': 'ibiza-app',
+        'grant_type': 'password',
+        'mobile-number': num,
+        'language': 'AR',
+    }
+
+    try:
+        response = requests.post('https://ibiza.ooredoo.dz/auth/realms/ibiza/protocol/openid-connect/token', headers=headers, data=data)
+        response.raise_for_status()
+
+        if 'ROOGY' in response.text:
+            bot.send_message(chat_id, 'تم إرسال الكود. من فضلك أدخل OTP:')
+            bot.register_next_step_handler_by_chat_id(chat_id, handle_otp)
+        else:
+            bot.send_message(chat_id, 'فشل في إرسال الكود. حاول مجددًا.')
+
+    except requests.RequestException as e:
+        bot.send_message(chat_id, f'حدث خطأ في الاتصال: {str(e)}')
+
+# التعامل مع إدخال OTP
+def handle_otp(message):
+    chat_id = message.chat.id
+    otp = message.text
+    num = user_data[chat_id]['phone_number']
+    
+    bot.send_message(chat_id, 'جاري التحقق من الكود...')
+
+    headers = {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Host': 'ibiza.ooredoo.dz',
+        'Connection': 'Keep-Alive',
+        'User-Agent': 'okhttp',
+    }
+
+    data = {
+        'client_id': 'ibiza-app',
+        'otp': otp,
+        'grant_type': 'password',
+        'mobile-number': num,
+        'language': 'AR',
+    }
+
+    try:
+        response = requests.post('https://ibiza.ooredoo.dz/auth/realms/ibiza/protocol/openid-connect/token', headers=headers, data=data)
+        response.raise_for_status()
+
+        if response.status_code == 200 and 'access_token' in response.json():
+            access_token = response.json()['access_token']
+            user_data[chat_id]['access_token'] = access_token
+            bot.send_message(chat_id, 'تم تسجيل الدخول بنجاح. جاري إرسال طلب الإنترنت...')
+            apply_internet_package(chat_id)
+        else:
+            bot.send_message(chat_id, 'فشل في التحقق من الكود. حاول مجددًا.')
+
+    except requests.RequestException as e:
+        bot.send_message(chat_id, f'حدث خطأ في الاتصال: {str(e)}')
+
+# دالة طلب باقة الإنترنت
+def apply_internet_package(chat_id):
+    access_token = user_data[chat_id]['access_token']
+    
+    url = 'https://ibiza.ooredoo.dz/api/v1/mobile-bff/users/mgm/info/apply'
+
+    headers = {
+        'Authorization': f'Bearer {access_token}',
+        'language': 'AR',
+        'request-id': 'ef69f4c6-2ead-4b93-95df-106ef37feefd',
+        'flavour-type': 'gms',
+        'Content-Type': 'application/json'
+    }
+
+    payload = {
+        "mgmValue": "ABC"  # يجب تغيير هذه القيمة إذا لزم الأمر
+    }
+
+    try:
+        response = requests.post(url, headers=headers, json=payload)
+        response.raise_for_status()
+
+        if 'EU1002' in response.text:
+            bot.send_message(chat_id, 'تم إرسال باقة الإنترنت بنجاح!')
+        else:
+            bot.send_message(chat_id, 'لديك باقة كافية. حاول لاحقًا.')
+
+    except requests.RequestException as e:
+        bot.send_message(chat_id, f'حدث خطأ في الاتصال: {str(e)}')
+
+# بدء البوت
+bot.polling()
